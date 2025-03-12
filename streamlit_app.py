@@ -1,7 +1,11 @@
 import streamlit as st
 import pandas as pd
 import math
+import os  # Přidáno pro získání portu
 from pathlib import Path
+
+# Nastavení portu
+port = int(os.environ.get("PORT", 8501))
 
 # Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
@@ -119,7 +123,6 @@ st.line_chart(
 ''
 ''
 
-
 first_year = gdp_df[gdp_df['Year'] == from_year]
 last_year = gdp_df[gdp_df['Year'] == to_year]
 
@@ -149,3 +152,6 @@ for i, country in enumerate(selected_countries):
             delta=growth,
             delta_color=delta_color
         )
+
+# Zobrazení portu
+st.write(f"App běží na portu {port}")
