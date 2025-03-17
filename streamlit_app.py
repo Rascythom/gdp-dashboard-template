@@ -1,151 +1,118 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import json
+import os
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+st.set_page_config(page_title="betmastery")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+st.markdown("""
+    <style>
+        body {
+            background: linear-gradient(180deg, hsl(241, 100%, 10%) 0%, hsl(75, 93%, 74%) 100%);
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+DATA_FILE = "tikety.json"
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+def load_tikety():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as file:
+            return json.load(file)
+    return []
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+def save_tikety(tikety):
+    with open(DATA_FILE, "w") as file:
+        json.dump(tikety, file)
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+if "tikety" not in st.session_state:
+    st.session_state.tikety = load_tikety()
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+st.title("Sázková statistika")
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+# Vstupní formulář
+st.header("Přidat tiket")
+castka = st.number_input("Vložená částka", min_value=0.0, step=0.1, key="castka_input")
+kurz = st.number_input("Kurz", min_value=1.0, step=0.01, key="kurz_input")
+vysledek = st.radio("Výsledek", ["Vyhrál", "Prohrál"], horizontal=True, key="vysledek_input")
 
-    return gdp_df
+if st.button("Přidat tiket"):
+    st.session_state.tikety.append({"castka": castka, "kurz": kurz, "vysledek": vysledek})
+    save_tikety(st.session_state.tikety)
+    st.success(f"Tiket přidán: {castka} Kč, Kurz: {kurz}, Výsledek: {vysledek}")
 
-gdp_df = get_gdp_data()
+# Výpočty statistik
+celkovy_zisk = 0
+celkovy_zisk_penez = 0
+celkovy_zisk_procenta = 0
+prumerny_kurz = 0
+prumerny_uspesny_kurz = 0
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+if st.session_state.tikety:
+    df = pd.DataFrame(st.session_state.tikety)
+    df["výhra"] = df.apply(lambda row: row["castka"] * row["kurz"] if row["vysledek"] == "Vyhrál" else 0, axis=1)
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+    celkovy_zisk = df["výhra"].sum() - df["castka"].sum()
+    celkovy_zisk_penez = celkovy_zisk
+    celkova_vlozena_castka = df["castka"].sum()
+    celkovy_zisk_procenta = (celkovy_zisk / celkova_vlozena_castka * 100) if celkova_vlozena_castka > 0 else 0
+    prumerny_kurz = df["kurz"].mean()
+    uspesne_kurzy = df[df["výhra"] > 0]["kurz"]
+    prumerny_uspesny_kurz = uspesne_kurzy.mean() if not uspesne_kurzy.empty else 0
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+# Výpočet úspěšnosti podle typu kurzu
+def analyza_uspesnosti_kurzu(df):
+    nizke_kurzy = df[df["kurz"] <= 2.0]
+    stredni_kurzy = df[(df["kurz"] > 2.0) & (df["kurz"] <= 3.0)]
+    vysoke_kurzy = df[df["kurz"] > 3.0]
 
-# Add some spacing
-''
-''
+    uspesnost_nizke = (nizke_kurzy["výhra"].sum() / nizke_kurzy["castka"].sum() * 100) if nizke_kurzy["castka"].sum() > 0 else 0
+    uspesnost_stredni = (stredni_kurzy["výhra"].sum() / stredni_kurzy["castka"].sum() * 100) if stredni_kurzy["castka"].sum() > 0 else 0
+    uspesnost_vysoke = (vysoke_kurzy["výhra"].sum() / vysoke_kurzy["castka"].sum() * 100) if vysoke_kurzy["castka"].sum() > 0 else 0
 
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
+    return uspesnost_nizke, uspesnost_stredni, uspesnost_vysoke
 
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
+uspesnost_nizke, uspesnost_stredni, uspesnost_vysoke = analyza_uspesnosti_kurzu(df) if st.session_state.tikety else (0, 0, 0)
 
-countries = gdp_df['Country Code'].unique()
+# Výstup statistik
+st.header("Celkový výsledek")
+st.markdown(
+    f'<div style="padding: 10px; background-color: {"#4CAF50" if celkovy_zisk_procenta >= 0 else "#FF5252"}; border-radius: 5px; color: white;">Celkový zisk: {celkovy_zisk_procenta:.2f}%</div>',
+    unsafe_allow_html=True)
+st.markdown(
+    f'<div style="padding: 10px; background-color: {"#4CAF50" if celkovy_zisk_penez >= 0 else "#FF5252"}; border-radius: 5px; color: white;">Celkový zisk v penězích: {celkovy_zisk_penez:.2f} Kč</div>',
+    unsafe_allow_html=True)
 
-if not len(countries):
-    st.warning("Select at least one country")
+st.markdown(f"Průměrný kurz: {prumerny_kurz:.2f}")
+st.markdown(f"Průměrný úspěšný kurz: {prumerny_uspesny_kurz:.2f}")
 
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
+# Zobrazení úspěšnosti podle kurzu
+st.subheader("Úspěšnost podle typu kurzu")
+st.markdown(f"Úspěšnost při nízkých kurzech (do 2.0): {uspesnost_nizke:.2f}%")
+st.markdown(f"Úspěšnost při středních kurzech (2.0–3.0): {uspesnost_stredni:.2f}%")
+st.markdown(f"Úspěšnost při vysokých kurzech (nad 3.0): {uspesnost_vysoke:.2f}%")
 
-''
-''
-''
+# Zobrazení všech tiketů
+if st.session_state.tikety:
+    st.header("Historie tiketů")
 
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
+    def smazat_tiket(index):
+        del st.session_state.tikety[index]
+        save_tikety(st.session_state.tikety)
 
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
+    # Smazání tiketu bez použití st.experimental_rerun()
+    for i, tiket in enumerate(st.session_state.tikety):
+        if tiket['vysledek'] == "Vyhrál":
+            st.markdown(
+                f'<div style="padding: 10px; background-color: #4CAF50; border-radius: 5px; color: white;">Tiket {i + 1}: {tiket["castka"]} Kč, Kurz: {tiket["kurz"]}, Výsledek: {tiket["vysledek"]}</div>',
+                unsafe_allow_html=True)
         else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+            st.markdown(
+                f'<div style="padding: 10px; background-color: #FF5252; border-radius: 5px; color: white;">Tiket {i + 1}: {tiket["castka"]} Kč, Kurz: {tiket["kurz"]}, Výsledek: {tiket["vysledek"]}</div>',
+                unsafe_allow_html=True)
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+        if st.button(f"Smazat {i + 1}", key=f"smazat_{i}"):
+            smazat_tiket(i)
+            save_tikety(st.session_state.tikety)
